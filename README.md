@@ -1,356 +1,124 @@
-# CRX FW 자동 테스트 하네스
+# CRX FW 테스트 하네스
 
-시트가 진실의 소스입니다. 코드를 생성하지 않고 런타임에 엑셀을 읽습니다.
-시트를 고치면 다음 실행에 바로 반영됩니다.
+반복되는 실장비 회귀 검증을 위해 만든 pytest 기반 테스트 하네스입니다. Excel 명세의 조건에 따라 테스트를 실행하고, UART 로그를 판정해 결과와 근거 로그를 남깁니다.
 
----
+실무에서는 장비별 pytest 프로세스를 분리해 여러 DUT를 실행합니다. 이 저장소에는 장비 없이 판정과 리포트 흐름을 확인할 수 있는 가상 데이터 예제도 포함합니다.
 
-## 1. 구조
+## 장비 없이 실행하기
 
-```
-spec_v2.xlsx          테스트 명세 (여기만 고치면 됩니다)
-config/
-  dut_crx.yaml        DUT 프로파일 (포트, 타임아웃)
-  forbidden.yaml      전 테스트 공통 금지 패턴
-  known_issues.yaml   금지 패턴에서 제외할 알려진 이슈
-harness/
-  spec.py             시트 로더
-  logsource.py        시리얼 단일 채널 분배 / 오프라인 재생
-  dut.py              로그인, 마커 명령, 자극 3종
-  verdict.py          CHECK / ABSENT 판정
-conftest.py           pytest 설정, 시트 파라미터화
-test_spec.py          테스트 본체 (함수 1개)
-```
-
-테스트 함수는 하나뿐입니다. 케이스 38개는 전부 시트에서 나옵니다.
-
----
-
-## 2. 설치
+Python 3.10 이상을 사용합니다. 실장비 운영은 Windows 기준이며, 아래 오프라인 예제는 COM 포트·로그인·전원 제어를 사용하지 않습니다.
 
 ```bash
-pip install pytest pyserial openpyxl pyyaml
+python -m pip install -r requirements.txt
+python examples/make_demo_spec.py
+python -m pytest test_spec.py --mode offline --spec examples/spec.demo.xlsx --dut-config examples/duts.demo.yaml --replay examples/normal.txt -v
 ```
 
-비밀번호는 코드나 설정 파일에 넣지 마세요.
+정상 예제의 기대 결과는 **2 passed, 1 skipped, 1 xfailed**입니다. `skipped`는 자극 장비가 없는 항목, `xfailed`는 의도한 누락 로그를 사용하는 회귀 감시 항목입니다. 실제 장비의 검증 결과나 자동화 커버리지 수치가 아닙니다.
+
+잘못된 로그가 FAIL로 검출되는지도 확인할 수 있습니다.
 
 ```bash
-# Windows
-set DUT_PASSWORD=<비밀번호>
-# Linux
-export DUT_PASSWORD=<비밀번호>
+python -m pytest test_spec.py --mode offline --spec examples/spec.demo.xlsx --dut-config examples/duts.demo.yaml --replay examples/error.txt -k DEMO002 -v
 ```
 
-레포에 올릴 때 `.gitignore` 에 `artifacts/` 를 넣으세요.
+이 명령은 `DEMO_ERROR`를 검출해 **1 failed** 및 종료 코드 **1**을 반환해야 합니다. 예제의 의도된 실패입니다.
 
----
+`spec.demo.xlsx`는 생성 파일로 Git에서 제외합니다. 생성 코드는 [examples/make_demo_spec.py](examples/make_demo_spec.py), 입력 로그는 직접 작성한 가상 데이터입니다.
 
-## 3. 1단계 — 오프라인으로 판정식부터 잡기
+## 실행 흐름과 구성
 
-**실제 DUT 없이 캡처된 로그로 먼저 돌립니다.** 실시간에서 테스트가 깨지면
-FW 결함인지, 자극이 잘못된 건지, 판정식이 틀린 건지 3중으로 헷갈립니다.
+1. `harness/spec.py`가 Excel의 `SPEC` 시트를 읽습니다.
+2. `conftest.py`가 제품별 TC를 선택해 pytest에 전달합니다.
+3. `harness/dut.py`가 자극을 수행하거나 오프라인 로그를 재생합니다.
+4. `harness/verdict.py`가 CHECK·ABSENT·SHELL_CHECK 조건을 판정합니다.
+5. 이벤트·리포트·SQLite 이력에 결과를 남깁니다.
+
+| 경로 | 역할 |
+| --- | --- |
+| `test_spec.py`, `conftest.py` | TC 실행, fixture, 결과 수집 |
+| `harness/spec.py` | Excel 명세 로딩과 제품 필터 |
+| `harness/logsource.py` | 직접 시리얼 수신, 외부 데몬 연결, 파일 재생 |
+| `harness/dut.py`, `harness/pdu.py` | 장비 명령·로그인·재부팅·전원 제어 |
+| `harness/verdict.py`, `harness/check.py` | TC 및 값 판정 |
+| `harness/report.py`, `harness/store.py` | 상세·요약 리포트와 실행 이력 |
+| `monitor.py` | 이벤트·로그·이력 조회용 로컬 화면 |
+| `config/` | 실장비 프로파일, 공통 금지 패턴과 예외 |
+| `examples/` | 독립 실행용 가상 명세와 로그 |
+| `docs/history/` | 과거 운영·수정 기록 |
+
+## TC 조건
+
+TC 조건은 Excel 시트에서 관리합니다. 전체 필수 컬럼은 `harness/spec.py`의 `HEADERS`, 최소 명세 작성법은 예제 생성 코드를 참고하세요. 기존 자극과 판정 유형의 조합은 시트에서 변경할 수 있지만, 새로운 장비 동작이나 판정 방식은 코드 수정이 필요합니다.
+
+| 항목 | 동작 |
+| --- | --- |
+| `CHECK` | 문자열 또는 정규식 검출 |
+| `ABSENT` | 판정 과정에서 읽은 로그 구간의 금지 문자열 검출 |
+| `ACTION` | 전원·ACC 사이클, 소프트 사이클, 재부팅 등 구현된 자극 |
+| `SHELL_CHECK` | 실장비 셸 명령의 출력 검사. 오프라인 미지원 |
+| `TIMEOUT_FROM` | `ACTION`, `PREV_STEP`, `ANY` 기준. `ANY`는 시간 제한 없이 로그 검색 |
+| `ORDERED` | `Y` 순차 검사, `N` 순서 무관 검색. `SHELL_CHECK`는 `Y`에서만 사용 |
+| `BLOCKED_BY` | 사유를 기록하고 pytest skip 처리 |
+| `TAG=regression_watch` | `xfail(strict=True)`: 예상 실패는 XFAIL, 예상 밖 성공은 XPASS(strict)로 실패 처리 |
+
+**ABSENT 범위에 주의하세요.** CHECK가 모두 끝나면 해당 TC 판정도 끝납니다. 마지막 CHECK 이후의 로그까지 계속 관찰한다고 가정하면 안 됩니다. 필요한 관찰 구간을 CHECK와 자극으로 구성하고, 오류를 넣은 로그에서도 검출되는지 확인해야 합니다.
+
+TC 수는 명세와 제품 필터에 따라 달라집니다. 실행 종료 시 출력되는 대상·실행 가능·blocked 요약을 확인하세요. 이는 명세 항목 수이며 요구사항 커버리지나 성공률과 같지 않습니다.
+
+## 실장비 실행
+
+운영용 `spec_v2.xlsx`와 실장비 원문 로그는 저장소에 포함하지 않습니다. 본인의 명세·장비 구성으로 준비해야 합니다. `config/duts.yaml`은 기존 랙 설정이며 그대로 실행하는 기본 예제가 아닙니다.
+
+1. 별도 DUT 설정 파일에서 포트, 장비 이름·제품, 로그 경로를 지정합니다.
+2. 전원 제어가 필요하면 `harness/pdu.py`의 허용 채널·별칭 확인과 실제 배선을 점검합니다. 외부 CoTermPowerMon 서비스는 별도 구성입니다.
+3. `DUT_PASSWORD` 환경변수 또는 Git에서 제외한 `config/secrets.yaml`로 비밀번호를 전달합니다.
+4. 선택한 TC 하나로 자극과 판정을 확인한 뒤 범위를 늘립니다.
+
+PowerShell 비밀번호 설정 예시:
+
+```powershell
+$env:DUT_PASSWORD = "<장비 비밀번호>"
+```
+
+자신의 설정과 명세를 준비한 후 실행합니다.
 
 ```bash
-pytest test_spec.py --mode offline --replay "2026-09-01-13시17분32초.log" --product CRX -v
+python -m pytest test_spec.py --mode live --dut-config config/my-duts.yaml --dut my-device --spec path/to/spec.xlsx --source direct -v
+python run_all.py --dut-config config/my-duts.yaml --spec path/to/spec.xlsx --only my-device
 ```
 
-`FAIL` 이 나오면 세 가지 중 하나입니다. 순서대로 확인하세요.
+- `direct`: Harness가 COM 포트를 직접 엽니다. 같은 포트를 다른 프로그램에서 열지 않습니다.
+- `daemon`: 외부 `crx-continuous`의 로그 파일·입력 소켓에 접속합니다. 이 외부 프로그램은 저장소에 포함하지 않습니다. 설정의 `log_dir`와 `pdu_channel`도 맞아야 합니다.
+- `run_all.py`는 기본값이 **live**이며 DUT별 pytest 프로세스를 띄웁니다. 단일 pytest 실행의 기본값은 **offline**입니다. 예제처럼 모드를 명시하는 것을 권장합니다.
+- Windows 파일 잠금을 사용하는 실장비 재부팅 자극은 다른 OS에서 지원하지 않습니다. 오프라인 실행은 장비 동작 검증을 대신하지 않습니다.
 
-1. **시트 VALUE 가 실제 로그와 다름** → 로그에서 `grep` 해보고 시트 수정
-2. **TIMEOUT 이 짧음** → 실측해서 시트 수정
-3. **진짜 결함** → 티켓
+기존 운영 설정에는 `POWER_CYCLE`을 `SOFT_CYCLE`로 치환하는 설정이 있습니다. 이 상태의 결과를 물리 전원 차단 검증으로 해석하면 안 됩니다.
 
-에이징 로그 하나로 판정식 대부분이 잡힙니다. 여기서 깨끗해진 뒤 넘어가세요.
+## 결과와 모니터링
 
----
+기본적으로 `artifacts/<DUT>/<실행시각>/`에 `events.jsonl`, `summary.txt`, `detail_report.md`를 생성합니다. 설정에 `log_dir`가 있으면 실행 폴더는 해당 경로 아래에 생깁니다. 실시간 로그의 위치는 소스 모드에 따라 달라집니다. SQLite 실행 이력은 `artifacts/runs.db`에 누적합니다.
 
-## 4. 2단계 — 실시간 실행
-
-먼저 `harness/dut.py` 의 `RelayController.set()` 을 실제 릴레이 API 로 채웁니다.
-채널 on/off 만 구현하면 됩니다.
-
-```bash
-pytest test_spec.py --mode live --product CRX -v
-```
-
-`config/dut_crx.yaml` 에서 `serial_port` 를 실제 COM 포트로 바꾸세요.
-
-### 자극 3종
-
-| ACTION | 동작 | 확인된 것 |
-|---|---|---|
-| `POWER_CYCLE` | 릴레이 off → 8s → on | 진짜 콜드부트 |
-| `SOFT_CYCLE` | `killall -TERM dvr_app` → 스크립트가 poweroff → MICOM 재기동 | SHUTDOWN·UNMOUNT·RECORD OFF 전부 나옴 |
-| `HARD_REBOOT` | shell `reboot` | RECORD OFF 까지만. SHUTDOWN 미도달 |
-
-`SOFT_CYCLE` 이 핵심입니다. `/etc/init.d/driverec` 이 `dvr_app` 종료를 감지해
-`poweroff` 를 걸고, MICOM 이 ACC 유지 상태를 보고 다시 켭니다.
-릴레이 없이도 완전한 종료-재기동 사이클이 돕니다.
-
-실측 (2026-09-01 에이징 로그, 4회 부팅):
-
-```
-Record[INT] Off  →  SHUTDOWN          45.6s
-SHUTDOWN         →  poweroff           6.3s
-poweroff         →  U-Boot             7.6s
-Loader Start     →  (LogWriter) BOOT  44.2 ~ 45.0s
-Record[INT] Off  →  ACC ON 재기동     101.4 ~ 106.8s
-```
-
-### 처음 돌릴 때 순서
-
-1. `off_settle_s` 실측 — 3/5/8/15초로 바꿔가며 부트로더 리셋 원인이
-   콜드부트로 일관되게 찍히는 최소값을 찾습니다
-2. 태그 하나로 좁혀서 시작 — `-k "TC001 or TC002"`
-3. 통과하면 `boot` 태그 전체, 그 다음 전체
-
----
-
-## 5. 3단계 — CI 연동
-
-```bash
-pytest test_spec.py --mode live --product CRX \
-       --junitxml=result.xml -v
-```
-
-`result.xml` 을 GitLab CI 의 `artifacts:reports:junit` 에 물리면
-MR 화면에 결과가 붙습니다.
-
-`InfraError` 는 별도 마커(`infra`)로 분리됩니다. 릴레이 고장이 "FW 테스트 실패"로
-집계되면 리포트 숫자가 거짓말을 하고, 그러면 개발팀이 리포트를 안 봅니다.
-
-실행 끝에 커버리지 요약이 찍힙니다.
-
-```
-시트 전체 TC     : 213
-CRX 대상 TC      : 210
-실행 가능        : 38
-blocked          : 170
-    - 검증 조건 미정의(Jira 이슈 원문): 167
-    - ACC 릴레이 미구성: 1
-    - G센서 충격 자극 필요: 1
-    - 리모컨/키 입력 필요: 1
-```
-
-**`blocked` 를 숨기지 않는 게 중요합니다.** "장비 하나 없어서 N개가 막혀 있다"가
-숫자로 남아야 나중에 예산 얘기할 때 근거가 됩니다.
-
----
-
-## 6. 시트 고치는 법
-
-| 컬럼 | 값 |
-|---|---|
-| `TYPE` | `CHECK` 나와야 함 / `ABSENT` 나오면 안 됨 / `ACTION` 자극 |
-| `VALUE` | CHECK·ABSENT: 찾을 문자열 / ACTION: 자극 이름 |
-| `FAIL` | 이 문구가 나오면 TIMEOUT 안 기다리고 즉시 실패 |
-| `TIMEOUT` | 초. 비면 `default_timeout_s` |
-| `TIMEOUT_FROM` | `ACTION` 자극 완료 시각 / `PREV_STEP` 직전 스텝 매칭 시각 / `ANY` 로그 전체 |
-| `ORDERED` | `Y` 시트 순서대로 / `N` 순서 무관 |
-| `SCOPE` | ABSENT 전용. `TC` 실행 구간 전체 |
-| `BLOCKED_BY` | 값이 있으면 실행 안 하고 blocked 로 집계 |
-| `PRODUCT` | `*` 공통 / `CRX` `TRX` `XVM` 해당 제품만 |
-
-TC 를 추가하려면 행만 넣으면 됩니다. 코드는 안 건드립니다.
-
-`FAIL` 컬럼을 채울수록 실행 시간이 줄어듭니다. 지금 6행뿐인데,
-TIMEOUT 이 600초인 행이 4개, 3600초인 행이 2개 있습니다.
-이 둘은 야간 잡으로 빼세요.
-
----
-
-## 7. 금지 패턴 다루는 법
-
-`config/forbidden.yaml` 은 전 테스트에 자동 적용됩니다. 개별 TC 가
-아무것도 안 해도 커널 패닉·OOM·스택 트레이스를 잡습니다.
-
-**새 패턴을 넣기 전에 반드시 기존 로그로 먼저 돌려보세요.** 정상 상태에서
-이미 나오는 패턴을 넣으면 100% 실패합니다.
-
-실제로 이 제품은 매 부팅마다 커널 스택 트레이스가 찍힙니다. 그래서
-`known_issues.yaml` 에 예외로 등록해 뒀습니다. 예외는 **줄 단위가 아니라
-앞뒤 40줄 문맥**으로 판단합니다. `Call trace:` 줄 자체에는 드라이버 이름이
-없어서 줄 단위로는 안 걸러집니다.
-
-예외를 추가할 때는 `ticket` 과 `evidence` 를 반드시 채우세요.
-근거 없는 예외가 쌓이면 금지 패턴 전체가 무력화됩니다.
-
----
-
-## 8. 모니터 화면
+`run_all.py`는 DUT별 `result.xml`과 `run.out`도 저장합니다. pytest를 직접 실행할 때 JUnit이 필요하면 `--junitxml=artifacts/result.xml`을 추가합니다.
 
 ```bash
 python monitor.py
 ```
 
-브라우저가 자동으로 열립니다. 외부 CDN 을 안 쓰므로 인터넷이 막힌 PC 에서도
-그대로 동작합니다.
+모니터는 로컬 `http://127.0.0.1:8777`에서 결과를 조회합니다. 테스트 실행과는 별도 프로세스이며, Harness 종료 후에도 UART를 계속 수신하는 프로그램은 아닙니다.
 
-**모니터를 켜둔 채로 다른 터미널에서 pytest 를 돌리세요.** 모니터가 pytest 를
-실행하지 않습니다. 이벤트 파일과 로그 파일을 읽기만 합니다.
+FAIL은 제품 결함의 확정 판정이 아닙니다. 기대 로그·시간 조건·시험 전제조건·장비 상태를 함께 확인해야 합니다. 여러 DUT가 같은 조건에서 실패하면 공통 FW뿐 아니라 설정·판정 로직도 확인하고, 특정 DUT만 실패하면 개체·저장장치·연결 상태 등을 조사합니다.
 
-```
-터미널 1:  python monitor.py
-터미널 2:  pytest test_spec.py --mode live --product CRX
-```
+공통 금지 패턴과 알려진 예외는 `config/forbidden.yaml`, `config/known_issues.yaml`에서 관리합니다. 기존 제품의 예외를 다른 제품에 그대로 적용하지 말고 근거와 적용 범위를 확인하세요.
 
-이 구조라서 얻는 게 셋입니다.
+## 구현과 검증에서 맡은 역할
 
-- 모니터가 죽어도 테스트는 계속 돕니다. 반대도 마찬가지입니다
-- pytest 쪽 수정이 conftest 훅 몇 줄로 끝납니다
-- CI 에서 돌린 `events.jsonl` 도 같은 화면으로 봅니다
+생성형 AI를 코드 구현 보조로 활용했습니다. 자동화 대상과 판정 조건을 정의하고 실제 DUT에서 실행 결과를 확인하며 TC와 동작을 보완했습니다. 주요 설계는 장비별 프로세스 분리, 시트 기반 조건 관리, 단일 시리얼 수신 경로, 실패 시 근거 로그 보존입니다.
 
-### 실시간 탭
+이 저장소의 공개 예제는 로그 판정과 결과 생성 흐름을 보여줍니다. 실제 장비에서의 동작·장시간 안정성은 제품·FW·명세·시험 환경별로 확인해야 합니다. 과거 시험 수치와 수정 경위는 [문서 목록](docs/README.md)에 별도로 보관합니다.
 
-지금 어느 TC 의 몇 번 스텝에서 무슨 문자열을 몇 초째 기다리는 중인지 보입니다.
-지금은 타임아웃이 날 때까지 아무것도 알 수 없는데, 이게 있으면 멈춘 지점이
-즉시 보입니다.
+## 현재 제한
 
-우측 UART 로그는 색으로 구분합니다. 빨강은 에러, 초록은 `(LogWriter)` 계열
-주요 이벤트, 회색은 커널 메시지입니다.
-
-### 추이 탭
-
-- **FW 버전별 부팅 시간** — 축이 실행 시각이 아니라 FW 버전입니다.
-  시각으로 잡으면 "언제 나빠졌는지"는 알아도 "어느 빌드에서"는 모릅니다
-- **실행 이력** — 빌드별 통과/실패
-- **자꾸 깨지는 TC** — 실패율 100% 는 진짜 결함, 40% 같은 중간값은 대개
-  테스트가 불안정한 것입니다. 이 구분이 없으면 리포트 전체를 불신하게 됩니다
-
-### 추이에 값을 추가하려면
-
-시트의 `CAPTURE` 컬럼에 `이름:정규식` 을 넣습니다. 그 스텝이 통과할 때
-값을 뽑아 실행 레코드에 붙입니다.
-
-```
-TC002 step1   fw_version:FW_VERSION\s+(\S+)
-```
-
-정규식을 빼고 이름만 쓰면 매칭된 줄 전체가 저장됩니다.
-
-### 데이터가 쌓이는 곳
-
-```
-artifacts/events.jsonl   현재 실행 이벤트 (실행마다 새로 만듦)
-artifacts/uart.log       UART 원문 (live 모드에서만)
-artifacts/runs.db        SQLite. 실행 이력 누적
-```
-
-`runs.db` 만 백업하면 추이가 보존됩니다.
-
----
-
-## 9. 여러 대 동시 실행
-
-### 포트 지정
-
-Windows 의 COM 번호는 재연결마다 바뀝니다. 4대를 돌리면 순서가 뒤바뀌어
-crx1 결과가 trx1 에 찍힙니다. 하드웨어 ID 로 잡아야 합니다.
-
-```bash
-python -m harness.ports
-```
-
-나온 hwid 에서 그 포트만 유일하게 구분되는 부분을 `config/duts.yaml` 의
-`port_match` 에 넣습니다.
-
-**CP2108 은 Quad 브리지라 Interface 0~3 이 SER 을 공유합니다.**
-SER 만 넣으면 4개가 동시에 걸려서 실행이 멈춥니다. `LOCATION` 까지 포함하세요.
-
-```yaml
-port_match: "SER=01A2B3C4 LOCATION=1-3:x.0"
-```
-
-`port_match` 가 비어 있으면 `serial_port` 값을 그대로 씁니다.
-처음에는 COM 번호로 시작하고, 안정화되면 바꾸세요.
-
-### 실행
-
-```bash
-python run_all.py                      # duts.yaml 전체
-python run_all.py --only crx1,trx1
-python run_all.py -k boot
-python run_all.py --serial             # 한 대씩 순차
-```
-
-`pytest-xdist` 를 쓰지 않습니다. DUT 마다 프로세스를 따로 띄웁니다.
-격리가 확실하고 한 대가 죽어도 나머지가 안 멈춥니다.
-프로세스는 2초 간격으로 띄워 전원 인가가 겹치지 않게 합니다.
-
-### 결과가 쌓이는 곳
-
-```
-artifacts/
-  crx1/  events.jsonl  uart.log  result.xml  run.out
-  trx1/  ...
-  runs.db          공유 (dut 컬럼으로 구분)
-```
-
-`runs.db` 는 한 개입니다. DUT 별 비교가 가능해야 하기 때문입니다.
-
-### 4대 운영의 진짜 이점
-
-처리량이 아니라 **판별력**입니다.
-
-| 결과 | 해석 |
-|---|---|
-| 4대 다 실패 | 확실한 FW 결함 |
-| 1대만 실패 | 그 개체 문제 (하드웨어 편차, SD 카드 불량) |
-| 매번 다른 대가 실패 | 테스트가 불안정한 것 |
-
-1대일 때는 "실패 = 결함"으로만 볼 수 있어서 이 구분이 안 됩니다.
-
----
-
-## 10. 남은 작업
-
-**장비**
-- 릴레이 채널 확장 (4대 x B+ / ACC) → TC005 해제
-- `RelayController.set()` 구현
-
-**시트**
-- **VMC 제품 행 추가** — VMC8PRO 가 시트에 없어 공통(`*`) TC 만 돕니다
-- Jira 167행에 검증 조건 채우기 (지금은 전부 blocked)
-- `FAIL` 컬럼 확대
-- TRX / XVM 행 추가 (`PRODUCT` 컬럼으로 한 파일 유지)
-
-**확인 필요**
-- `(LogWriter) MICOM_ACC_CHANGE` 문구 — 7일 에이징에 0건
-- `Fail to EMMC Driver ID Load` 가 정상인지 결함인지
-
----
-
-## 11. 이번 오프라인 검증 결과
-
-2026-09-01 에이징 로그(7일, 114만 줄, 128MB) 기준.
-
-```
-35 passed, 3 failed, 3 skipped
-```
-
-실패 3건은 판정 로직 문제가 아니라 전부 실제 발견 사항입니다.
-
-**TC030 — RTC 회귀가 아직 안 고쳐졌습니다**
-
-```
-nvt_rtc_chk_power: RTC ready timeout, plz check 32K OSC on PCB
-```
-
-4회 부팅 전부에서 재현됩니다. 시트에 `FAIL` 문구로 이미 등록돼 있던
-회귀 항목입니다. 디바이스 시각이 2015/01/01 로 나오는 현상과
-연관됐을 가능성이 높습니다.
-
-**TC007 — `MICOM_ACC_CHANGE` 가 7일간 한 번도 안 나옵니다**
-
-시트 문구가 틀렸거나, 이 이벤트가 실제로 발생하지 않는 것입니다.
-개발팀 확인이 필요합니다.
-
-**TC025 — `NETWORK FAIL` 은 자극이 필요합니다**
-
-7일 내내 네트워크가 정상이었으니 안 나온 게 맞습니다.
-네트워크 차단 수단이 생기면 해제됩니다.
-
-**참고: 안정성은 좋습니다**
-
-7일간 예기치 않은 재부팅 0회, 커널 패닉·OOM·소프트 락업 0건입니다.
-재부팅 3회는 전부 FOTA 의도된 재부팅이었습니다.
+- 실제 장비·운영 명세·외부 상시 로거·PDU 서비스는 별도로 준비해야 합니다.
+- 오프라인 로그가 끝났는데 기대 조건을 찾지 못했고 로그의 마지막 시각도 제한 시간을 넘지 않으면 판정 대기가 끝나지 않을 수 있습니다. 예제 누락 항목에는 제한 시간을 넘는 마지막 로그를 포함했습니다.
+- 코드·운영 설정·과거 기록 사이에 시점 차이가 있을 수 있습니다. 현재 실행 조건과 원문 로그를 기준으로 결과를 확인해야 합니다.
