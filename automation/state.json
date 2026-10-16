@@ -1,0 +1,16 @@
+{
+  "phase": "running",
+  "cycle": "verify-1",
+  "last_run_start": "2026-10-07T09:02:56",
+  "last_run_complete": null,
+  "run_dirs": {
+    "CRX3212": "2026-10-07-09시03분04초",
+    "TRX3208": "2026-10-07-09시03분00초",
+    "VMC8PRO": "2026-10-07-09시03분02초",
+    "XVM508": "2026-10-07-09시02분58초"
+  },
+  "end_date": null,
+  "interval_hours": null,
+  "source_mode": "daemon",
+  "notable": "2시간 주기 자동 루프는 2026-10-07 08:37에 종료됨(PLAYBOOK 루프 아님). 이건 acc_cycle() BOOT 교차확인 로직 수정 검증을 위한 단발성 수동 실행(cycle='verify-1'). 완료되면 분석만 하고 자동으로 다음 사이클 시작하지 않음 - 사용자에게 결과 보고."
+}

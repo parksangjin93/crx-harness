@@ -1,0 +1,13 @@
+﻿artifacts/
+__pycache__/
+*.pyc
+result.xml
+config/secrets.yaml
+*.log
+*.db
+.pytest_cache/
+.claude/
+*.bak_*
+automation/backups/
+*.xlsx
+*.zip

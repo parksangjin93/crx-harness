@@ -1,0 +1,138 @@
+# DUT 4대 정의.
+#
+# port_match 채우는 법:
+#   python -m harness.ports
+# 를 돌리면 현재 연결된 포트와 hwid 가 나옵니다.
+# 그 포트만 유일하게 구분되는 부분을 복사해 넣으세요.
+#
+# CP2108 은 Quad 브리지라 Interface 0~3 이 SER 을 공유합니다.
+# SER 만 넣으면 4개가 동시에 걸려서 실행이 멈치니
+# 인터페이스 번호(x.0 ~ x.3)를 함께 주세요.
+#
+# LOCATION 을 통째로("1-3:x.0") 넣지 마세요.
+# 앞의 1-3 은 USB 허브가 꽂힌 물리 위치라, 허브를 다른 포트에 옮기면
+# 1-4 로 바뀌어 4대가 전부 깨집니다. SER 과 x.N 만 있으면 충분합니다.
+#
+# port_match 가 비어 있으면 serial_port 값을 그대로 씁니다.
+# 처음 붙일 때는 serial_port 로 시작하고, 안정화되면 port_match 로 바꾸세요.
+
+
+# ---------------------------------------------------------------------------
+# PDU (CoTermPowerMon, Modbus RTU 8ch 릴레이)
+# ---------------------------------------------------------------------------
+# CoTermPowerMon.exe 가 띄우는 MCP 엔드포인트입니다. 하네스는 여기에
+# JSON-RPC 로 pdu_set / power_status 만 호출합니다.
+#
+# 포트 번호를 코드에 박지 마세요. README 와 CONNECT_GUIDE 는 8766 이라고
+# 적혀 있지만 이 PC 의 CoTermPowerMon.ini 는 8765 입니다. 바뀔 수 있습니다.
+#
+# 하네스가 건드릴 수 있는 채널은 harness/pdu.py 의 DEFAULT_ALLOWED_CHANNELS
+# 에 {5,6,7,8} 로 박아뒀습니다. CH1~4 는 XVD302 에이징이 돌고 있어
+# 설정으로 풀 수 없게 코드에 둔 것입니다. 늘려야 하면 그 상수를 고치세요.
+pdu:
+  url: "http://127.0.0.1:8765/mcp/PDU"
+  timeout_s: 5.0
+
+  # COM96 한 줄에 4대가 붙습니다. 명령 사이 최소 간격(초).
+  # 줄이면 Modbus RTU 프레임이 섞일 수 있습니다.
+  min_gap_s: 0.15
+
+  # pdu_set 후 power_status 로 실제 채널 상태를 되읽어 확인할 때까지의 여유.
+  verify_timeout_s: 3.0
+
+
+defaults:
+  baudrate: 115200
+  login_user: root
+  boot_done_pattern: '\(LogWriter\) BOOT'
+  # 2026-10-01에 harness/dut.py 쪽 클래스 기본값은 180->300 상향했지만
+  # 여기(yaml) 값이 그걸 덮어써서 실제로는 계속 180이 적용되고 있었다
+  # (2026-10-06 cycle0: TC020 이 SOFT_CYCLE 내부 BOOT 대기 180s 에서
+  # 미검출로 실패 - duts.yaml 쪽을 놓쳤던 게 원인으로 확인되어 반영).
+  boot_timeout_s: 300
+  shutdown_pattern: '\(LogWriter\) SHUTDOWN'
+  shutdown_timeout_s: 90
+  default_timeout_s: 60
+  off_settle_s: 8
+  app_process: dvr_app
+
+  # UART 로그 보관 정책
+  #   log_max_mb : 이 크기를 넘으면 다음 파일로 넘어갑니다 (순번이 붙습니다)
+  #   log_keep   : 폴더에 유지할 파일 수. 넘으면 오래된 것부터 지웁니다
+  #
+  # 크기로 통째로 자르지 않고 회전시키는 이유는, 결함이 난 순간의
+  # 로그가 잘려나가면 안 되기 때문입니다.
+  # 200MB x 20개 = DUT 당 최대 4GB 입니다. 디스크에 맞게 줄이세요.
+  log_max_mb: 200
+  log_keep: 20
+
+  # 전원 사이클 자극이 아직 없으므로 POWER_CYCLE 을 SOFT_CYCLE 로 돌려 씁니다.
+  # SOFT_CYCLE 은 killall -TERM dvr_app -> driverec 이 poweroff
+  # -> MICOM 이 ACC 유지 상태를 보고 재기동, 입니다.
+  #
+  # 지우는 순서를 지키세요.
+  #   1. ACC_CYCLE 자극을 dut.py 에 구현
+  #   2. convert_spec.py 의 POWER_CYCLE_TCS 를 ACC_CYCLE 로 재배정
+  #   3. 그 다음에 이 두 줄을 지운다
+  # 지금 먼저 지우면 POWER_CYCLE 이 미구현 경로로 가서 13개 TC 가
+  # 전부 InfraError 로 죽습니다.
+  #
+  # 그리고 이 줄이 살아 있는 동안의 결과에는 전원 사이클 검증이 없습니다.
+  # 지운 뒤 통과/실패가 바뀌면 회귀가 아니라 처음 검증되는 것입니다.
+  action_overrides:
+    POWER_CYCLE: SOFT_CYCLE
+
+
+# ---------------------------------------------------------------------------
+# DUT
+# ---------------------------------------------------------------------------
+# pdu_channel 은 PDU 의 실제 채널 번호를 그대로 적습니다.
+# relay_channel 에 +5 하는 식으로 계산하지 마세요. 배선이 한 번 바뀌면
+# 틀리고, 틀리면 CH1~4 의 XVD302 에이징을 죽입니다.
+#
+# pdu_alias 는 세션 시작 시 power_status 의 별칭과 대조합니다(부분 문자열).
+# 채널 번호는 그대로인데 물리 대상이 바뀐 경우를 잡기 위한 것입니다.
+# CoTermPowerMon UI 에서 채널 이름을 바꾸면 깨지므로,
+# 제품을 구분할 만큼만 짧게 넣으세요.
+duts:
+  - name: xvm508
+    product: XVM
+    serial_port: "COM40"
+    log_dir: "C:/Users/HW-RACK/Desktop/log/XVM508"
+    port_match: ["SER=1B602D7E05B5198911E5A3D3C0B711F", "x.0"]
+    relay_channel: 0
+    pdu_channel: 5
+    pdu_alias: "XVM508"
+
+  - name: trx3208
+    product: TRX
+    serial_port: "COM42"
+    log_dir: "C:/Users/HW-RACK/Desktop/log/TRX3208"
+    port_match: ["SER=1B602D7E05B5198911E5A3D3C0B711F", "x.1"]
+    relay_channel: 1
+    pdu_channel: 6
+    pdu_alias: "TRX"
+
+  - name: vmc8pro
+    product: VMC
+    serial_port: "COM39"
+    log_dir: "C:/Users/HW-RACK/Desktop/log/VMC8PRO"
+    port_match: ["SER=1B602D7E05B5198911E5A3D3C0B711F", "x.2"]
+    relay_channel: 2
+    pdu_channel: 7
+    pdu_alias: "VMC8PRO"
+
+  # CH8 별칭이 "CRX POE ACC" 입니다. 다른 셋은 "<제품> ACC" 인데
+  # 이것만 POE 가 붙어 있습니다. PoE 카메라 급전 라인이면 끊어도
+  # 본체는 안 죽고 CAMERA LOSS 만 납니다.
+  #   python -m harness.pdu --set 8:off
+  # 로 COM41 로그를 확인하세요. 본체가 안 죽으면 아래 pdu_channel /
+  # pdu_alias 두 줄을 지우고 이 DUT 만 HARD_REBOOT 으로 돌려야 합니다.
+  - name: crx3212
+    product: CRX
+    serial_port: "COM41"
+    log_dir: "C:/Users/HW-RACK/Desktop/log/CRX3212"
+    port_match: ["SER=1B602D7E05B5198911E5A3D3C0B711F", "x.3"]
+    relay_channel: 3
+    pdu_channel: 8
+    pdu_alias: "CRX"

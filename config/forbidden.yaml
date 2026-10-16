@@ -1,0 +1,25 @@
+# 전 테스트 공통 금지 패턴.
+#
+# 개별 TC 가 아무것도 하지 않아도 이 패턴들이 자동으로 검사된다.
+# 회귀 검출력의 대부분이 여기서 나온다.
+#
+# 주의: 새 패턴을 넣기 전에 반드시 기존 캡처 로그로 먼저 돌려본다.
+#       정상 상태에서 이미 나오는 패턴을 넣으면 100% 실패한다.
+
+forbidden:
+  - pattern: "Kernel panic"
+    desc: "커널 패닉"
+  - pattern: "Unable to handle kernel"
+    desc: "커널 메모리 접근 오류"
+  - pattern: "Out of memory: Kill"
+    desc: "OOM killer 동작"
+  - pattern: "watchdog: BUG: soft lockup"
+    desc: "소프트 락업"
+  - pattern: "Call trace:"
+    desc: "커널 스택 트레이스"
+  - pattern: "Reboot failed"
+    desc: "재부팅 실패 후 halt"
+  - pattern: "Segmentation fault"
+    desc: "프로세스 크래시"
+  - pattern: "Tombstone written"
+    desc: "네이티브 크래시"

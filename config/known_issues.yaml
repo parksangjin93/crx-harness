@@ -1,0 +1,40 @@
+# 금지 패턴에서 제외할 알려진 이슈.
+#
+# 코드가 아니라 이 파일로 관리한다. 그래야 나중에 FW 가 고쳐졌을 때
+# 항목을 지우면서 "이제 안 나온다"를 검증할 수 있다.
+#
+# 새로 추가할 때는 반드시 ticket 과 evidence 를 채운다.
+# 근거 없는 예외는 금지 패턴 전체를 무력화시킨다.
+
+known_issues:
+  - id: KI-001
+    pattern: "TP2802_watchdog_deamon"
+    ticket: "미등록"
+    evidence: "2026-09-01 에이징 로그, 부팅 4회 전부 6.2s 지점에서 재현"
+    note: >
+      __might_sleep -> rt_mutex_lock -> i2c_adapter_lock_bus -> tp28xx_byte_write.
+      TP28xx 비디오 디코더 드라이버가 atomic 컨텍스트에서 i2c 를 호출한다.
+      패닉은 아니고 부팅은 정상 진행된다.
+      이 항목을 지우면 모든 테스트가 Call trace 로 실패한다.
+
+  - id: KI-002
+    pattern: "Fail to EMMC Driver ID Load"
+    ticket: "미등록"
+    evidence: "2026-09-01 에이징 로그, 부팅 4회 전부 발생"
+    note: >
+      운전자 ID 미등록 상태의 정상 동작인지 결함인지 개발팀 확인 필요.
+      정상이면 TC028 기대값을 조정하고 이 예외를 지운다.
+
+  - id: KI-003
+    pattern: "wq_worker_sleeping|wq_worker_waking_up|worker_enter_idle"
+    ticket: "미등록"
+    evidence: >
+      2026-09-09 live 실행. CRX3212 8+5건, XVM508 12건. 4대 전부 재현.
+      mmc_rescan 워크큐 경로. 깨우는 쪽(waking_up)과 잠드는 쪽(sleeping)이
+      연속으로 뜬다 (end trace ...698 / ...699).
+    note: >
+      WARNING at kernel/workqueue.c:892.
+      nvt_mmc_irq -> mmc_request_done -> complete() 가 인터럽트 스레드에서
+      워크큐 워커를 깨우면서 워크큐 불변조건이 깨진다.
+      SD 카드 스캔 때마다 재현. Tainted 상태로 동작은 계속된다.
+      MMC 드라이버 수정 필요. 고쳐지면 이 항목을 지우고 재검증할 것.
