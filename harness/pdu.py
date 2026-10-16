@@ -24,7 +24,10 @@ from __future__ import annotations
 
 import itertools
 import json
-import msvcrt
+try:
+    import msvcrt
+except ModuleNotFoundError:
+    msvcrt = None  # 오프라인 로그 재생에서는 PDU 잠금을 사용하지 않는다.
 import tempfile
 import threading
 import time
@@ -75,6 +78,8 @@ class _SerialGate:
     """
 
     def __init__(self, min_gap_s: float = 0.15) -> None:
+        if msvcrt is None:
+            raise PduError("PDU의 프로세스 간 잠금은 Windows에서만 지원합니다.")
         self._lock = threading.Lock()
         self._min_gap = min_gap_s
         self._last = 0.0

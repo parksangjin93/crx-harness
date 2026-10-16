@@ -7,7 +7,10 @@ DUT 추상화.
 
 from __future__ import annotations
 
-import msvcrt
+try:
+    import msvcrt
+except ModuleNotFoundError:
+    msvcrt = None  # 오프라인 로그 재생에는 Windows 파일 잠금이 필요 없다.
 import random
 import re
 import struct
@@ -67,6 +70,8 @@ def _stagger_action_start(min_gap_s: float = ACTION_STAGGER_MIN_GAP_S) -> None:
     seek 한 위치에 그대로 덮어써진다. 파일이 없거나 너무 작으면 먼저
     16바이트로 만들어 둔다.
     """
+    if msvcrt is None:
+        raise InfraError("실장비 재부팅 자극의 프로세스 간 잠금은 Windows에서만 지원합니다.")
     if not _ACTION_STAGGER_LOCK_PATH.exists() or \
             _ACTION_STAGGER_LOCK_PATH.stat().st_size < 16:
         with open(_ACTION_STAGGER_LOCK_PATH, "a+b") as init_fh:

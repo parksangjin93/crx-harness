@@ -52,7 +52,7 @@
      - "확실한 수정"의 기준: 오타/구식 VALUE(현재 FW 로그와 비교해 문자 그대로 불일치 확인됨), 타임아웃 실측 기반 부족, 액션 누락 등 — 근거가 로그로 명확히 입증되는 것.
      - "애매한 것"의 기준: 산발적/간헐적이라 재현율이 낮거나, FW 결함인지 하니스 문제인지 불확실하거나, 수정이 다른 TC에 영향을 줄 수 있는 것. → CHANGELOG에만 기록, spec/코드는 안 건드림.
      - 수정 전 반드시 `automation/backups/cycle<N>_<timestamp>/spec_v2.xlsx` (+필요시 harness/*.py)로 백업.
-     - `automation/CHANGELOG.md`에 이번 사이클에서 발견한 것/적용한 것/적용 안 하고 넘어간 것을 전부 기록 (근거 로그 인용 포함).
+     - `docs/history/CHANGELOG.md`에 이번 사이클에서 발견한 것/적용한 것/적용 안 하고 넘어간 것을 전부 기록 (근거 로그 인용 포함).
      - openpyxl `cell.value=None`은 no-op이므로 지울 때 반드시 명시적으로 다시 대입할 것 (과거 실수 전적 있음).
    - phase="idle"로, `last_run_complete`=now, `cycle`+=1, `run_dirs`=null.
 5. **phase == "idle"**이면 **바로 다음 사이클 시작** (완료 후 즉시 재시작 — 실행 자체가 보통 1~1.5시간 걸리므로 이게 자연스럽게 2시간 안팎 간격이 된다. "2h"를 추가로 기다리지 않는다. `interval_hours`는 참고용 메모일 뿐 대기 조건 아님):
@@ -64,7 +64,7 @@
 - 세션/위클리 사용량 퍼센트를 직접 조회하는 도구는 없음 — 선제적으로 "90%"를 감지할 방법이 없다. 대신 **아무 도구 호출(특히 Agent, PowerShell, ScheduleWakeup 등)이 rate-limit/usage/quota 관련 에러를 반환하면 그걸 신호로 삼는다.**
 - 그런 에러를 만나면:
   1. 지금 하던 분석/수정 작업은 무리해서 계속하지 말고 중단.
-  2. `automation/CHANGELOG.md`에 "사용량 한도로 인해 <시각>부터 일시 중지, <재개 예정 시각>에 재시도" 기록.
+  2. `docs/history/CHANGELOG.md`에 "사용량 한도로 인해 <시각>부터 일시 중지, <재개 예정 시각>에 재시도" 기록.
   3. `automation/state.json`에 진행 중이던 phase/cycle 상태를 그대로 저장해서 나중에 이어갈 수 있게 함.
   4. `ScheduleWakeup(delaySeconds: 3600, reason: "usage 한도로 인한 백오프 대기")`로 최소 1시간(연속으로 계속 막히면 그다음엔 재시도 없이 그냥 다음 정기 wakeup까지 기다림 — 무한 재시도 루프 방지) 쉬었다가 재개.
   5. 재개 시점에 다시 같은 에러가 나면 이 절차를 반복하되, 매번 CHANGELOG에 남겨서 나중에 사람이 패턴을 볼 수 있게 함.

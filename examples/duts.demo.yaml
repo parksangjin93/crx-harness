@@ -1,0 +1,3 @@
+name: demo
+product: DEMO
+default_timeout_s: 3

@@ -27,7 +27,7 @@ SHELL_CHECK)의 유일한 소스. `python run_all.py`로 4대 동시 실행
 | ~9/23 | TC033 값 수정, TC032 blocked | 옛 FW 기준 값/존재하지 않는 로그 → 현재 FW 기준으로 교체·blocked | spec_v2.xlsx |
 
 백업은 전부 `automation/backups/<timestamp>/` 에 있음. 사이클/조치별 상세 근거(왜 그렇게 판단했는지,
-로그 인용 포함)는 전부 `automation/CHANGELOG.md`에 있음 — 의사결정 이유가 궁금하면 거기부터 볼 것.
+로그 인용 포함)는 전부 `docs/history/CHANGELOG.md`에 있음 — 의사결정 이유가 궁금하면 거기부터 볼 것.
 
 ## 3. 아직 안 고치고 남겨둔 진짜 이슈
 
@@ -64,13 +64,13 @@ SHELL_CHECK)의 유일한 소스. `python run_all.py`로 4대 동시 실행
 ## 5. TC 추가 후보 (설계/검증 전)
 
 - ~~`(encode) Encoding Handle Status for 60 seconds` 로그 — 프레임 드롭 감시용~~ **완료(2026-10-06,
-  TC209로 반영)**. 상세는 `automation/CHANGELOG.md` "신규 TC209 추가" 항목 참고. 오프라인 재생
+  TC209로 반영)**. 상세는 `docs/history/CHANGELOG.md` "신규 TC209 추가" 항목 참고. 오프라인 재생
   검증 중 `conftest.py` offline 분기가 `--no-stimulus`를 반영 안 하는 기존 버그를 별도로 발견함
   (이번 작업 범위 아니라 수정 안 함, live 모드엔 영향 없음).
 - ~~TC102/109/152 (Driver ID) — SHELL_CHECK로 ini 직접 조작 검토~~ **완료(2026-10-06, 자동화 불가로
   최종 확정)**. GitLab 코드 추적 결과 Driver ID는 RFID 카드 태그/QR 스캔이라는 순수 하드웨어 이벤트로만
   바뀌고, `SetDriverID()`는 런타임 메모리만 변경할 뿐 디스크 설정파일을 안 씀 — TC123과 달리 셸로
-  흉내낼 파일 자체가 없음. 상세는 `automation/CHANGELOG.md` "Driver ID 라이브 탐색" 항목,
+  흉내낼 파일 자체가 없음. 상세는 `docs/history/CHANGELOG.md` "Driver ID 라이브 탐색" 항목,
   `project_crx_harness_not_automatable.md` 참고. `spec_v2.xlsx` BLOCKED_BY 반영 완료.
 
 ## 6. `--source daemon` 모드 (신규, 2026-10)
@@ -101,9 +101,9 @@ SHELL_CHECK)의 유일한 소스. `python run_all.py`로 4대 동시 실행
 
 ## 8. 참고 위치
 
-- 사이클/조치별 상세 기록: `automation/CHANGELOG.md`
+- 사이클/조치별 상세 기록: `docs/history/CHANGELOG.md`
 - 코드/스펙 변경 백업: `automation/backups/<timestamp>/`
-- 자동 루프 상태(참고용, 지금은 중단됨): `automation/state.json`, `automation/PLAYBOOK.md`
+- 자동 루프 상태(참고용, 지금은 중단됨): `automation/state.json`, `docs/history/PLAYBOOK.md`
 - Claude 메모리(자동 로드됨, 별도 조치 불필요): `project_crx_harness_overview.md`,
   `project_crx_harness_open_issues.md`, `project_crx_harness_not_automatable.md`,
   `reference_crx_harness_trackers.md`
